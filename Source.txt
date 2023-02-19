@@ -10,7 +10,7 @@
 // https://www.tradingview.com/v/GecN34Qq/
 //
 //@version=5
-
+  
 indicator(title='Order Blocks', overlay=true)
 
 bool        pv2_sv          = input.bool        (true,                          title='Plot 2nd order pivots')
