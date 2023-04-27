@@ -1,0 +1,451 @@
+//@version=5
+strategy("Cloud X Meso", overlay=true,process_orders_on_close = true )
+
+st1on = input.bool(true,"",inline = "1d", group='BACKTEST SETTINGS')
+date1 = input.time(timestamp('1 Jan 2021 00:00 +0000'), 'Start Date',inline = "1d", group='BACKTEST SETTINGS')
+testPeriodStart = date1
+
+st2on = input.bool(true,"",inline = "2d", group='BACKTEST SETTINGS')
+date2 = input.time(timestamp('20 Feb 2024 00:00 +0000'), 'End Date',inline = "2d", group='BACKTEST SETTINGS')
+testPeriodStop = date2
+
+author = "Michael"
+trade = input.string("Both","Trade:",options = ["Long","Short","Both"], group='BACKTEST SETTINGS')
+/////////////////////////////////Strategy Inputs////////////////////////////////////////////
+
+MaxRiskTip = 'Max Risk is calculated based on the distance from Expected Entry Price to Stop Loss.' + '\nNote: This does not take into account Fees, Slippage or Spread.'
+ron = input.bool(true,"",inline = "dda", group='BACKTEST SETTINGS')
+MaxRiskPerTrade = input.float(1000.0, title='Max Risk Per Trade($)',inline = "dda", tooltip=MaxRiskTip, group='BACKTEST SETTINGS') // 100
+Capital_Risk =MaxRiskPerTrade 
+
+get_position_size(ExpectedEntryPrice, Stop) =>
+    Risk = math.abs(ExpectedEntryPrice - Stop)
+    TradeRisk = Risk / ExpectedEntryPrice
+    PositionSizeUSD = Capital_Risk / TradeRisk
+    PositionSizeUSD := PositionSizeUSD 
+    PositionSizeUNITS = PositionSizeUSD / ExpectedEntryPrice
+    PositionSizeUNITS
+
+testPeriod() =>
+    (st1on?time >= testPeriodStart:true )and (st2on?time <= testPeriodStop:true) ? true : false
+d2 = input.bool(true, title='Mon', group='Week Days to enter trade?', inline='d_1')
+d3 = input.bool(true, title='Tue', group='Week Days to enter trade?', inline='d_1')
+d4 = input.bool(true, title='Wed', group='Week Days to enter trade?', inline='d_1')
+d5 = input.bool(true, title='Thur', group='Week Days to enter trade?', inline='d_1')
+d6 = input.bool(true, title='Fri', group='Week Days to enter trade?', inline='d_1')
+d7 = input.bool(true, title='Sat', group='Week Days to enter trade?', inline='d_1')
+d1 = input.bool(true, title='Sun', group='Week Days to enter trade?', inline='d_1')
+
+string tradingDays = ''
+if d1
+    tradingDays += '1'
+    tradingDays
+if d2
+    tradingDays += '2'
+    tradingDays
+if d3
+    tradingDays += '3'
+    tradingDays
+if d4
+    tradingDays += '4'
+    tradingDays
+if d5
+    tradingDays += '5'
+    tradingDays
+if d6
+    tradingDays += '6'
+    tradingDays
+if d7
+    tradingDays += '7'
+    tradingDays
+
+//SESSION
+sessionOneRange = '0000-2400:' + tradingDays
+in_session_one =( time(timeframe.period, sessionOneRange,"GMT")) and testPeriod() 
+
+//  4am-12pm
+intraday = input.bool(true,"",inline = "i")
+session = input.session("0400-1200",title="Trading Time ",inline = "i")
+sess_ex = input.bool(true,"Session Exit")
+t=time(timeframe.period,session)
+bgcolor(not na(t) and intraday ? color.new(color.blue,90) : na  )
+
+sps = strategy.position_size
+
+
+auto = input.string("Pineconnector","Automation",options = ["Pineconnector","Tradingview.to"])
+pc_id = input.string(title='License ID', defval='', group='Pineconnector', tooltip='This is your license ID')
+pc_risk = input.float(title='Risk/Lots', defval=0.1, step=0.1, minval=0, group='Pineconnector', tooltip='Risk % of balance /Lots')
+pc_prefix = input.string(title='MetaTrader Symbol', defval='', group='Pineconnector', tooltip='This is your broker\'s MetaTrader symbol ')
+
+// Inputs for position sizing and account selection
+pair = input.string(title='Pair', defval='XAUUSD',group = "Tradingview.to")
+lot_s = input.float(title='Lot Size', defval=0.1,group = "Tradingview.to")
+
+long_en_a = 'long '+pair+' q='+ str.tostring(lot_s) 
+short_en_a = 'short '+pair+' q='+ str.tostring(lot_s)
+long_ex_a='Close '+pair+' T=long' 
+short_ex_a='Close '+pair+' T=short' 
+
+var symbol = pc_prefix
+onecandle_on = input.bool(true,"Check 1 Extra Candle",group = "Special Functions")
+breakon = input.bool(true,"Move SL to Breakeven",group = "Special Functions")
+
+grp_ce = "CE"
+trail_ty = input.string("CE","Trailing Type",options = ["CE","ALMA"],group = grp_ce,inline = "7")
+trail_   = input.string("Dynamic","",options = ["Dynamic","Fixed"],group = grp_ce,inline = "7")
+
+length = input(title='ATR Period', defval=22,group = grp_ce)
+mult = input.float(title='ATR Multiplier', step=0.1, defval=3.0,group = grp_ce)
+showLabels =false// input(title='Show Buy/Sell Labels ?', defval=true,group = grp_ce)
+useClose = input(title='Use Close Price for Extremums ?', defval=true,group = grp_ce)
+highlightState =true// input(title='Highlight State ?', defval=true,group = grp_ce)
+rrtrailon = input.bool(true,"Enable R:R Trailing",group = grp_ce)
+
+// grp1= "Dynamic Trailing "
+source = close
+windowsize =10// input.int(title="Window Size", defval=10,group = grp1)
+offset = input.float(title="Offset",  defval=0.85,group = grp_ce)
+sigma =5// input.float(title="Sigma",  defval=5,group = grp1)
+// alma_slon = input.bool(false,"Enable Dynamic Trailing")
+alma = ta.alma(source, windowsize, offset, sigma)
+lower_band = ta.alma(source, windowsize, offset, sigma)-ta.atr(14)
+upper_band = ta.alma(source, windowsize, offset, sigma)+ta.atr(14)
+
+// plot(alma, title="ALMA",display = display.none)
+plot(lower_band, color=color.red, title="Lower ATR Band" ,display = display.none)
+plot(upper_band, color=color.red, title="Upper ATR Band" ,display = display.none)
+
+// -- HA
+rep_on =false//  input.bool(true,"Enable Original HA Candles")
+// 1 Hour Heiken Ashi
+aas = true // input.bool(true, title="Show Heikin Ashi Triangles at Top and Bottom of Screen?")
+db_grp = "Directional Bias Settings"
+ha60on = input.bool(false, title="Enable Directional Bias",group = db_grp)
+cedir = input.bool(false, title="Enable Directional Bias 2",group = db_grp) // CE in direction // 
+useCurrentRes = false //input.bool(false, title="Use Current Chart Resolution?")
+resCustom = input.timeframe(title="Timeframe", defval="60",group = db_grp)
+res = useCurrentRes ? timeframe.period : resCustom
+ha1_t = ticker.heikinashi(syminfo.tickerid)
+ha1_open  = request.security(ha1_t, res,rep_on? open:open[1] , barmerge.gaps_off, barmerge.lookahead_on)
+ha1_close = request.security(ha1_t, res,rep_on? close:close[1] , barmerge.gaps_off, barmerge.lookahead_on)
+
+ema200on = input.bool(true,"Enable EMA",group = db_grp)
+ema_src =  close//input.source(title="EMA Src", defval=close,inline="1",group=db_grp)
+ema_len = input.int(title="EMA Length", defval=200,inline="1",group=db_grp)
+ema = ta.ema(ema_src,ema_len)
+plot( ema , title='EMA 200', color=color.white, linewidth=3, style=plot.style_line,display = display.none )
+ema_b =ema200on? close>ema:true
+ema_s =ema200on? close<ema:true
+
+hU = (ha60on? ha1_close>ha1_open:true)  and ema_b
+hD = (ha60on? ha1_close<ha1_open:true)  and ema_s
+
+plotshape(aas and hU ? hU : na, title="green bottom",style=shape.triangleup, location=location.bottom, color=color.lime ,display = display.none)
+plotshape(aas and hD ? hD : na, title="red top",style=shape.triangledown, location=location.top, color=color.red ,display = display.none)
+
+// 15 Minute haeiken Ashi
+aas2 = true//input.bool(true, title="Show Heikin Ashi Triangles at Top and Bottom of Screen?")
+enex_grp = "Entry/Exit Settings"
+ha15on = input.bool(false, title="Enable Entry",group = enex_grp)
+HA15exon =input.bool(true,"Enable Exit ",group = enex_grp)
+CEexon =input.bool(true,"Enable Exit 2 ",group = enex_grp)
+
+useCurrentRes2 = false// input.bool(false, title="Use Current Chart Resolution?")
+resCustom2 = input.timeframe(title="Timeframe", defval="15",group = enex_grp)
+res2 = useCurrentRes2 ? timeframe.period : resCustom2
+ha_t = ticker.heikinashi(syminfo.tickerid)
+ha_open  = request.security(ha_t, res2, rep_on? open:open[1] , barmerge.gaps_off, barmerge.lookahead_on)
+ha_close = request.security(ha_t, res2, rep_on? close:close[1] , barmerge.gaps_off, barmerge.lookahead_on)
+hU2 = ha15on?ha_close>ha_open:true
+hD2 = ha15on?ha_close<ha_open:true 
+plotshape(aas2 and hU2 ? hU2 : na, title="green bottom",style=shape.triangleup, location=location.belowbar, color=color.lime,display = display.none)
+plotshape(aas2 and hD2 ? hD2 : na, title="red top",style=shape.triangledown, location=location.abovebar, color=color.red,display = display.none)
+
+ha_b = hU2 and hU 
+ha_s = hD2 and hD 
+
+// -- 
+grp2='Oscillator Settings' 
+wt_on = input.bool(true,"Enable Oscillator",group = grp2)
+wtcolon = input.bool(true,"Show Oscillator Signals",group = grp2)
+n1 =7// input(7, 'Channel Length',group = grp2)
+n2 =10// input(10, 'Average Length',group = grp2)
+wt_in =4// input.int(4,"Wavetrend",group = grp2)
+// obLevel1 = input(60, 'Over Bought Level 1',group = grp2)
+// obLevel2 = input(53, 'Over Bought Level 2',group = grp2)
+// osLevel1 = input(-60, 'Over Sold Level 1',group = grp2)
+// osLevel2 = input(-53, 'Over Sold Level 2',group = grp2)
+
+ap = hlc3
+esa = ta.ema(ap, n1)
+d = ta.ema(math.abs(ap - esa), n1)
+ci = (ap - esa) / (0.015 * d)
+tci = ta.ema(ci, n2)
+
+wt1 = tci
+wt2 = ta.sma(wt1, wt_in)
+
+wt_col = wtcolon ?  (ta.cross(wt1, wt2) ? wt2 - wt1 > 0 ? color.red : color.blue : color.white ):color.white
+// barcolor(wt_col)
+
+wt_b =wt_on? ta.crossover(wt1,wt2):true
+wt_s =wt_on? ta.crossunder(wt1,wt2):true
+// wt_cross = wt_b or wt_s
+
+
+//----------------------------------------------------------------
+green_on = input.bool(true,"Green Candle Entry",group = "Volume Settings")
+red_on = input.bool(true,"Red Candle Entry",group = "Volume Settings")
+vol_on = input.bool(true,"Enable Volume",group = "Volume Settings")
+grp3='No Trade Zone'
+//    Inputs:
+dv_on = input.bool(true,"Enable No Trade Zone",group = grp3)
+int vis_atr =13// input.int(13,group = grp3)
+int vis_std =20// input.int(20,group = grp3)
+int sed_atr =40// input.int(40,group = grp3)
+int sed_std =100// input.int(100,group = grp3)
+float threshold_level = input.float(1.4,"Sensitivity",group = grp3)
+bool lag_supressor =true// input.bool(true,group = grp3)
+lag_s_K = 0.5
+
+//  -----------------------------------------------------------------------------------------
+//    
+vol = 0.0
+s1=nz(vol[1], 0)
+s3=nz(vol[3], 0)
+vol := lag_supressor ? ta.atr(vis_atr) / ta.atr(sed_atr) + lag_s_K*(s1-s3) : ta.atr(vis_atr) / ta.atr(sed_atr)
+anti_thres = ta.stdev(close, vis_std) / ta.stdev(close, sed_std)
+t2 = threshold_level - anti_thres
+vol_m = vol > t2 ? -1 : 0.03
+//  -----------------------------------------------------------------------------------------
+//    Outputs:
+// plot(title='V', series=vol, color=color.lime)
+// plot(title='A', series=t, color=color.silver)
+// plot(title='T', series=vol_m, color=color.maroon)
+//
+vol_ok  =dv_on? vol_m==-1:true
+
+volume_b = green_on?close>open:true and (vol_on?volume>volume[1]:true)
+volume_s = red_on?close<open:true and (vol_on?volume>volume[1]:true)
+
+// ----------- //
+
+
+atr = mult * ta.atr(length)
+longStop = (useClose ? ta.highest(close, length) : ta.highest(length)) - atr
+longStopPrev = nz(longStop[1], longStop)
+longStop := close[1] > longStopPrev ? math.max(longStop, longStopPrev) : longStop
+shortStop = (useClose ? ta.lowest(close, length) : ta.lowest(length)) + atr
+shortStopPrev = nz(shortStop[1], shortStop)
+shortStop := close[1] < shortStopPrev ? math.min(shortStop, shortStopPrev) : shortStop
+var int dir = 1
+dir := close > shortStopPrev ? 1 : close < longStopPrev ? -1 : dir
+
+ce_b = trail_ty=="CE" or cedir?  dir ==  1 :true
+ce_s = trail_ty=="CE" or cedir?  dir ==  -1 :true
+
+
+
+
+f_b1 = wt_b  
+f_b  = in_session_one and trade!="Short" and (onecandle_on?(f_b1 or f_b1[1]) and volume_b and ha_b and vol_ok :f_b1 and volume_b and ha_b and vol_ok )   and sps<=0 and (intraday ? not na(t):true ) and ce_b
+f_b2 = in_session_one and trade!="Short" and  (f_b1 and volume_b and ha_b and vol_ok )   and sps>0 and (intraday ? not na(t):true )  and ce_b
+
+f_s1 = wt_s
+f_s  =   in_session_one and trade!="Long" and ( onecandle_on?(f_s1 or f_s1[1]) and volume_s and vol_ok and ha_s :f_s1 and volume_s and vol_ok and ha_s ) and sps>=0 and (intraday ? not na(t):true )  and ce_s
+f_s2 =   in_session_one and trade!="Long" and (f_s1 and volume_s and vol_ok and ha_s ) and sps<0 and (intraday ? not na(t):true )  and ce_s
+
+ex_b_ha = hD2 and HA15exon
+ex_s_ha = hU2 and HA15exon
+
+ex_b_ce = dir==-1 and CEexon
+ex_s_ce = dir== 1 and CEexon
+
+
+
+// -- 
+
+rr1 = 1//input.float(1,"R:R 1")
+rr2 = 2//input.float(2,"R:R 2")
+rr3 = 3//input.float(3,"R:R 3")
+
+// -- long
+var float long_ep = 0
+var float long_tp1 = 0
+var float long_tp2 = 0
+var float long_tp3 = 0
+var float long_sl = 0
+var float long_tsl = 0
+var int l_tp = 0
+var float diffl = 0
+
+closelonga = auto=="Pineconnector"?pc_id + ',closelong,' + symbol + '':long_ex_a
+closeshorta = auto=="Pineconnector"?pc_id + ',closeshort,' + symbol + '':short_ex_a
+
+//APPLYING STRATEGY:
+
+
+if f_b 
+    l_tp := 0
+
+    long_ep := close
+    if trail_=="Fixed"
+        long_sl := trail_ty=="ALMA"? lower_band:longStop
+    diffl := long_ep-long_sl
+    long_tp1 := long_ep + rr1*diffl
+    long_tp2 := long_ep + rr2*diffl
+    long_tp3 := long_ep + rr3*diffl
+    long_tsl := 0
+    // label.new(bar_index,low,longa1)
+
+
+if sps>0 and high>long_tp1 and l_tp==0
+    l_tp := 1
+if sps>0 and high>long_tp2 and l_tp==1
+    l_tp := 2
+if sps>0 and high>long_tp3 and l_tp==2
+    l_tp := 3
+if l_tp==1  and breakon
+    long_sl := long_ep
+if l_tp==2   and rrtrailon
+    long_sl := long_ep+0.5*diffl
+if l_tp==3   and rrtrailon
+    long_sl := long_ep+1*diffl
+if l_tp==3 and high>=long_tp3 and rrtrailon
+    long_tp3 := long_tp3[1]+diffl
+    long_tsl := long_tp3-2*(diffl)
+f_l_sl = math.max(long_tsl,(trail_=="Dynamic" and trail_ty=="ALMA"?lower_band:trail_=="Dynamic" and trail_ty=="CE"?longStop:long_sl))
+
+if f_b 
+    longa1 =auto=="Pineconnector"? pc_id + ',buy,' + symbol + ',risk=' + str.tostring(pc_risk, '#.##')+',sl=' + str.tostring(f_l_sl, '#.####'):long_en_a
+    LONG_PS =  get_position_size(close, f_l_sl)
+    strategy.entry("Long",strategy.long,alert_message = longa1,qty = ron?LONG_PS:na)
+
+
+if f_b2 
+    longa =auto=="Pineconnector"? pc_id + ',buy,' + symbol + ',risk=' + str.tostring(pc_risk, '#.##')+',sl=' + str.tostring(f_l_sl, '#.####'):long_en_a
+    LONG_PS =  get_position_size(close, f_l_sl)
+    strategy.entry("Long.",strategy.long,alert_message = longa,qty = ron?LONG_PS:na)
+
+
+// -- short
+var float short_ep = 0
+var float short_tp1 = 0
+var float short_tp2 = 0
+var float short_tp3 = 0
+var float short_sl = 0
+var float short_tsl = 0
+var int s_tp = 0
+var float diffs = 0
+
+if f_s  
+    s_tp := 0
+
+    short_ep := close
+    if trail_=="Fixed"
+        short_sl := trail_ty=="ALMA"?upper_band : shortStop
+    diffs := short_sl-short_ep
+    short_tp1 := short_ep - rr1*diffs
+    short_tp2 := short_ep - rr2*diffs
+    short_tp3 := short_ep - rr3*diffs
+    short_tsl := 9999999999
+
+if sps<0 and low<short_tp1 and s_tp==0
+    s_tp := 1
+if sps<0 and low<short_tp2 and s_tp==1
+    s_tp := 2
+if sps<0 and low<short_tp3 and s_tp==2
+    s_tp := 3
+if s_tp==1   and breakon
+    short_sl := short_ep
+if s_tp==2   and rrtrailon
+    short_sl := short_ep-0.5*diffs
+if s_tp==3   and rrtrailon
+    short_sl := short_ep-1*diffs
+if s_tp==3 and low<=short_tp3 and rrtrailon
+    short_tp3 := short_tp3[1]-diffs
+    short_tsl := short_tp3+2*(diffs)
+f_s_sl = math.min(short_tsl,(trail_=="Dynamic" and trail_ty=="ALMA"?upper_band:trail_=="Dynamic" and trail_ty=="CE"?shortStop:short_sl))
+
+if f_s  
+    shorta1 =auto=="Pineconnector"? pc_id + ',sell,' + symbol + ',risk=' + str.tostring(pc_risk, '#.##')+ ',sl=' + str.tostring(f_s_sl, '#.####'):short_en_a
+    SHORT_PS =  get_position_size(close, f_s_sl)
+    strategy.entry("Short",strategy.short,alert_message = shorta1,qty =  ron?SHORT_PS:na)
+
+
+if f_s2
+    shorta =auto=="Pineconnector"? pc_id + ',sell,' + symbol + ',risk=' + str.tostring(pc_risk, '#.##')+ ',sl=' + str.tostring(f_s_sl, '#.####'):short_en_a
+    SHORT_PS =  get_position_size(close, f_s_sl)
+    strategy.entry("Short.",strategy.short,alert_message = shorta,qty = ron?SHORT_PS:na)
+
+// plot(f_s_sl)
+
+notrade_col = vol_ok?color.white: color.gray
+barc = (sps>0?color.blue:sps<0?color.red:sps==0 and vol_m!=-1?notrade_col:wt_col)
+barcolor(barc,title = "Candle Color")
+// plotcandle(open, high, low, close, title='Candles', color = barc, wickcolor=barc)
+
+tpon  = input.bool(true,"Enable R:R",inline = "RR")
+rr = input.float(2,"",inline = "RR",step = 0.5)
+sep = strategy.position_avg_price
+var float nlong_tp = 0
+if f_b //or f_b2
+    nlong_tp := tpon?close + rr*(close-f_l_sl):na
+// plot(nlong_tp)
+var float nshort_tp = 0
+if f_s// or f_s2
+    nshort_tp := tpon?close - rr*(f_s_sl-close):na
+
+slon  = input.bool(true,"Enable Stop Loss")
+// if slon
+strategy.exit("Ex-Long","Long",stop = slon?f_l_sl:na , limit = nlong_tp,alert_message = closelonga)
+strategy.exit("Ex-Long.","Long.",stop = slon?f_l_sl:na ,limit = nlong_tp,alert_message = closelonga)
+strategy.exit("Ex-Short","Short",stop = slon?f_s_sl:na ,limit = nshort_tp,alert_message = closeshorta)
+strategy.exit("Ex-Short.","Short.",stop = slon?f_s_sl:na ,limit = nshort_tp,alert_message = closeshorta)
+
+
+if sps>0 and (f_s)
+    alert(closelonga,alert.freq_once_per_bar_close)
+if sps<0 and f_b
+    alert(closeshorta,alert.freq_once_per_bar_close)
+
+
+if sps>0 and (ex_b_ha)
+    strategy.close("Long",comment = "HA Close",alert_message = closelonga)
+    strategy.close("Long.",comment = "HA Close",alert_message = closelonga)
+if sps<0 and ex_s_ha
+    strategy.close("Short",comment = "HA Close",alert_message = closeshorta)
+    strategy.close("Short.",comment = "HA Close",alert_message = closeshorta)
+
+if sps>0 and (ex_b_ce)
+    strategy.close("Long",comment = "CE Close",alert_message = closelonga)
+    strategy.close("Long.",comment = "CE Close",alert_message = closelonga)
+if sps<0 and ex_s_ce
+    strategy.close("Short",comment = "CE Close",alert_message = closeshorta)
+    strategy.close("Short.",comment = "CE Close",alert_message = closeshorta)
+
+
+
+if(na(t)) and intraday 
+    strategy.cancel("Long")
+    strategy.cancel("Short")
+    if sess_ex
+        strategy.close("Long",comment = "Session Close",alert_message = closelonga) 
+        strategy.close("Short",comment = "Session Close",alert_message = closeshorta) 
+
+
+
+plotshape(f_b, title='Long', text='Long', textcolor=color.new(color.white, 0), size=size.auto, style=shape.labelup, location=location.belowbar, color=color.new(color.blue, 0))
+plotshape(f_s , title='Short', text='Short', textcolor=color.new(color.white, 0), size=size.auto, style=shape.labeldown, location=location.abovebar, color=color.new(color.red, 0))
+
+f_exb = sps==0 and sps[1]>0
+f_exs = sps==0 and sps[1]<0
+plotshape(f_exb, title='Exit Long', text='Exit Long', textcolor=color.new(color.white, 0), size=size.auto, style=shape.labeldown, location=location.abovebar, color=color.new(color.blue, 0),offset = -1)
+plotshape(f_exs , title='Exit Short', text='Exit Short', textcolor=color.new(color.white, 0), size=size.auto, style=shape.labelup, location=location.belowbar, color=color.new(color.red, 0),offset = -1)
+
+
+stp = plot(sps<0 ? nshort_tp : na , title='Short TP', color=color.new(color.orange, 0), linewidth=2, style=plot.style_linebr )
+ssl = plot(sps<0 ? f_s_sl  : na , title='Short SL', color=color.new(#ff0188, 0), linewidth=2, style=plot.style_linebr )
+ltp = plot(sps>0 ? nlong_tp : na , title='Long TP', color=color.new(color.orange, 0), linewidth=2, style=plot.style_linebr )
+lsl = plot(sps>0 ? f_l_sl  : na , title='Long SL', color=color.new(#ff0188, 0), linewidth=2, style=plot.style_linebr )
