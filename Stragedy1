@@ -1,16 +1,3 @@
-// This source code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
-// © pmk07
-//
-// Acknowledgements/Reference:
-//
-// @rumpypumpydumpy - Higher Order Pivots
-// https://www.tradingview.com/v/x2LlRvBe/
-//
-// @MarkMiddleton2020 - Order Blocks
-// https://www.tradingview.com/v/GecN34Qq/
-//
-//@version=5
-  
 indicator(title='Order Blocks', overlay=true)
 
 bool        pv2_sv          = input.bool        (true,                          title='Plot 2nd order pivots')
